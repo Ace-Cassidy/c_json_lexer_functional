@@ -2,6 +2,10 @@
 
 /*TOKEN*/
 
+//// tkn_create
+// we are passing the address of the token contained in the lexer
+// this works because we only send one token at a time
+// it would be better to buffer the channel and make this memory threadsafe
 Token *tkn_create(Lexer *lx, int type) {
   lx->tkn = (Token){type, lx->token_start, lx->current_pos};
   return &lx->tkn;
@@ -9,6 +13,8 @@ Token *tkn_create(Lexer *lx, int type) {
 
 /*LEXER*/
 
+//// lex
+// the main entry point
 Lexer *lex(FILE *f) {
   Lexer *lx = lx_create(f);
   pthread_t th;
@@ -16,6 +22,8 @@ Lexer *lex(FILE *f) {
   return lx;
 }
 
+//// lx_create
+// initialize the lexer
 Lexer *lx_create(FILE *f) {
   Lexer *lx = (Lexer *)malloc(sizeof(Lexer));
   // allocate channel
@@ -34,6 +42,8 @@ Lexer *lx_create(FILE *f) {
   return lx;
 }
 
+//// lx_run
+// loop through state functions until null is returned
 void *lx_run(Lexer *lx) {
   for (StateFn sf = (StateFn){state_start}; sf.ptr;) {
     sf = sf.ptr(lx);
@@ -41,6 +51,9 @@ void *lx_run(Lexer *lx) {
   chan_close(lx->emitter);
 }
 
+//// lx_next
+// move forward one character
+// lexer does not support wide characters (unicode)
 char lx_next(Lexer *lx) {
   lx->current_pos++;
   if (lx->current_pos >= lx->text_length - 1) {
@@ -51,15 +64,23 @@ char lx_next(Lexer *lx) {
   }
 }
 
+//// lx_current
+// return character at current position
 char lx_current(Lexer *lx) {
   char c = lx->input_text[lx->current_pos];
   return c;
 }
 
+//// lx_backup
+// move backwards one character
 void *lx_backup(Lexer *lx) { lx->current_pos--; }
 
+//// lx_ignore
+// set token start to current position, ignore token up to this point
 void *lx_ignore(Lexer *lx) { lx->token_start = lx->current_pos; }
 
+//// lx_emit
+// emit a token and return the state passed in
 StateFn lx_emit(Lexer *lx, TokenType id, StateFn next_state) {
   Token *tkn = tkn_create(lx, id);
   chan_send(lx->emitter, (void *)tkn);
@@ -71,6 +92,7 @@ StateFn lx_emit(Lexer *lx, TokenType id, StateFn next_state) {
 
 /* StateFn */
 
+//// whitespace_map
 static const StateFn whitespace_map[256] = {
     [0 ... 255] = (StateFn){state_start}, [' '] = (StateFn){state_whitespace},
     ['\t'] = (StateFn){state_whitespace}, ['\r'] = (StateFn){state_whitespace},
@@ -247,6 +269,7 @@ StateFn state_reset(Lexer *lx) {
   return reset_map[c];
 }
 
+//// start_map
 static const StateFn start_map[256] = {
     [0 ... 255] = (StateFn){state_error},
     ['"'] = (StateFn){state_dq_string},

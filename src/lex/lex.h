@@ -21,13 +21,12 @@ typedef enum {
   TypeComma = ','
 } TokenType;
 
-struct _Token {
+typedef struct {
   TokenType type;
   unsigned int start, end;
-};
-typedef struct _Token Token;
+} Token;
 
-struct _Lexer {
+typedef struct {
   Channel *emitter;
   char *input_text;
   unsigned int text_length;
@@ -35,38 +34,37 @@ struct _Lexer {
   unsigned int token_start;
   bool atEOF;
   Token tkn;
-};
-typedef struct _Lexer Lexer;
+} Lexer;
 
 struct _StateFn {
   struct _StateFn (*ptr)(Lexer *lx);
 };
 typedef struct _StateFn StateFn;
 
-StateFn state_zero(Lexer *lx);
-StateFn state_sign(Lexer *lx);
-StateFn state_keyword(Lexer *lx);
-StateFn state_sq_string(Lexer *lx);
-StateFn state_error(Lexer *lx);
-StateFn state_dq_string(Lexer *lx);
-StateFn state_reset(Lexer *lx);
-StateFn state_float(Lexer *lx);
-StateFn state_integer(Lexer *lx);
-StateFn state_rsquare(Lexer *lx);
-StateFn state_rcurly(Lexer *lx);
-StateFn state_lsquare(Lexer *lx);
-StateFn state_lcurly(Lexer *lx);
-StateFn state_comma(Lexer *lx);
-StateFn state_colon(Lexer *lx);
-StateFn lx_emit(Lexer *lx, TokenType id, StateFn next_state);
-void *lx_ignore(Lexer *lx);
-void *lx_backup(Lexer *lx);
 char lx_current(Lexer *lx);
 char lx_next(Lexer *lx);
-StateFn sub_exponent(Lexer *lx, StateFn prev_state);
+Lexer *lex(FILE *f);
+Lexer *lx_create(FILE *f);
+StateFn lx_emit(Lexer *lx, TokenType id, StateFn next_state);
+StateFn state_colon(Lexer *lx);
+StateFn state_comma(Lexer *lx);
+StateFn state_dq_string(Lexer *lx);
+StateFn state_error(Lexer *lx);
+StateFn state_float(Lexer *lx);
+StateFn state_integer(Lexer *lx);
+StateFn state_keyword(Lexer *lx);
+StateFn state_lcurly(Lexer *lx);
+StateFn state_lsquare(Lexer *lx);
+StateFn state_rcurly(Lexer *lx);
+StateFn state_reset(Lexer *lx);
+StateFn state_rsquare(Lexer *lx);
+StateFn state_sign(Lexer *lx);
+StateFn state_sq_string(Lexer *lx);
 StateFn state_start(Lexer *lx);
 StateFn state_whitespace(Lexer *lx);
-void *lx_run(Lexer *lx);
-Lexer *lx_create(FILE *f);
-Lexer *lex(FILE *f);
+StateFn state_zero(Lexer *lx);
+StateFn sub_exponent(Lexer *lx, StateFn prev_state);
 Token *tkn_create(Lexer *lx, int type);
+void *lx_backup(Lexer *lx);
+void *lx_ignore(Lexer *lx);
+void *lx_run(Lexer *lx);

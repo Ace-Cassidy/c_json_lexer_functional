@@ -2,8 +2,6 @@
 
 /*TOKEN*/
 
-//////// tkn_create //
-////
 Token *tkn_create(Lexer *lx, int type) {
   lx->tkn = (Token){type, lx->token_start, lx->current_pos};
   return &lx->tkn;
@@ -11,8 +9,6 @@ Token *tkn_create(Lexer *lx, int type) {
 
 /*LEXER*/
 
-//////// lex //
-////
 Lexer *lex(FILE *f) {
   Lexer *lx = lx_create(f);
   pthread_t th;
@@ -20,8 +16,6 @@ Lexer *lex(FILE *f) {
   return lx;
 }
 
-//////// lx_create //
-////
 Lexer *lx_create(FILE *f) {
   Lexer *lx = (Lexer *)malloc(sizeof(Lexer));
   // allocate channel
@@ -40,8 +34,6 @@ Lexer *lx_create(FILE *f) {
   return lx;
 }
 
-//////// lx_run //
-////
 void *lx_run(Lexer *lx) {
   for (StateFn sf = (StateFn){state_start}; sf.ptr;) {
     sf = sf.ptr(lx);
@@ -49,8 +41,6 @@ void *lx_run(Lexer *lx) {
   chan_close(lx->emitter);
 }
 
-//////// lx_next //
-////
 char lx_next(Lexer *lx) {
   if (lx->current_pos >= lx->text_length) {
     lx->atEOF = true;
@@ -62,84 +52,147 @@ char lx_next(Lexer *lx) {
   }
 }
 
-//////// lx_current //
-////
 char lx_current(Lexer *lx) {
   char c = lx->input_text[lx->current_pos];
   return c;
 }
 
-//////// lx_backup //
-////
-void *lx_backup(Lexer *lx) {
-  lx->current_pos--;
-  lx->token_start--;
-}
+void *lx_backup(Lexer *lx) { lx->current_pos--; }
 
-//////// lx_ignore //
-////
 void *lx_ignore(Lexer *lx) { lx->token_start = lx->current_pos; }
 
-//////// lx_emit //
-////
 void *lx_emit(Lexer *lx, TokenType id) {
   Token *tkn = tkn_create(lx, id);
   chan_send(lx->emitter, (void *)tkn);
   lx->token_start = ++lx->current_pos;
 }
 
-/*StateFn*/
+/* StateFn */
 
-/* Terminals */
+static const StateFn whitespace_map[256] = {
+    [0 ... 255] = (StateFn){state_start}, [' '] = (StateFn){state_whitespace},
+    ['\t'] = (StateFn){state_whitespace}, ['\r'] = (StateFn){state_whitespace},
+    ['\n'] = (StateFn){state_whitespace},
+};
+
+//// state_whitespace
+// consume whitespace but don't emit a token
+StateFn state_whitespace(Lexer *lx) {
+  char c = lx_next(lx);
+  lx_ignore(lx);
+  return whitespace_map[c];
+};
+
+
+/* Terminal */
+
+//// state_colon
 StateFn state_colon(Lexer *lx) {
   lx_emit(lx, TypeColon);
   return (StateFn){state_start};
 }
+//// state_comma
 StateFn state_comma(Lexer *lx) {
   lx_emit(lx, TypeComma);
   return (StateFn){state_start};
 };
+//// state_lcurly
 StateFn state_lcurly(Lexer *lx) {
   lx_emit(lx, TypeLCurly);
   return (StateFn){state_start};
 }
+//// state_lsquare
 StateFn state_lsquare(Lexer *lx) {
   lx_emit(lx, TypeLSquare);
   return (StateFn){state_start};
 }
+//// state_rcurly
 StateFn state_rcurly(Lexer *lx) {
   lx_emit(lx, TypeRCurly);
   return (StateFn){state_start};
 }
+//// state_rsquare
 StateFn state_rsquare(Lexer *lx) {
   lx_emit(lx, TypeRSquare);
   return (StateFn){state_start};
 }
 
 /* Number */
-StateFn state_digits(Lexer *lx) {
+
+//// state_zero
+// zero must be special to disallow integers starting with zero
+StateFn state_zero(Lexer *lx) {
   char c = lx_next(lx);
-  if (isdigit(c))
-    return (StateFn){state_digits};
-  else if (c == '.' || c == 'e' || c == 'E')
+  if (isdigit(c)) // don't allow integers that start with 0
+    return (StateFn){state_error};
+  if (c == '.') //  allow floats that start with 0
     return (StateFn){state_float};
   else {
     lx_emit(lx, TypeInteger);
-    return (StateFn){state_recovery};
+    return (StateFn){state_reset};
+  }
+};
+
+
+//// state_sign
+// for negative integers
+StateFn state_sign(Lexer *lx) {
+  char c = lx_next(lx);
+  if (isdigit(c)) {
+    return (StateFn){state_integer};
+  } else {
+    return (StateFn){state_error};
   }
 }
 
+//// state_integer
+// all numbers are integers until proven otherwise
+StateFn state_integer(Lexer *lx) {
+  char c = lx_next(lx);
+  while (isdigit(c)) {
+    c = lx_next(lx);
+  }
+  if (c == '.') {
+    return (StateFn){state_float};
+  } else if (c == 'e' || c == 'E') {
+    sub_exponent(lx, (StateFn){state_integer});
+  } else {
+    lx_backup(lx);
+    lx_emit(lx, TypeInteger);
+    return (StateFn){state_reset};
+  }
+}
+
+//// state_float
 StateFn state_float(Lexer *lx) {
+  char c = lx_next(lx);
+  while (isdigit(c))
+    c = lx_next(lx);
+  if (c == 'e' || c == 'E') {
+    sub_exponent(lx, (StateFn){state_float});
+  }
+  lx_backup(lx);
+  lx_emit(lx, TypeFloat);
+  return (StateFn){state_reset};
+}
+
+//// consume_exponent
+// a sub state function
+StateFn sub_exponent(Lexer *lx, StateFn prev_state) {
   char c = lx_next(lx);
   if (c == '-' || c == '+')
     c = lx_next(lx);
+  if (!isdigit(c)) // need at least one digit after exponent or else error
+    return (StateFn){state_error};
   while (isdigit(c))
     c = lx_next(lx);
-  lx_emit(lx, TypeFloat);
-  return (StateFn){state_recovery};
+  return prev_state;
 }
 
 /* String */
+
+//// state_dq_string
+// double quoted string
 StateFn state_dq_string(Lexer *lx) {
   char c;
   for (;;) {
@@ -148,10 +201,13 @@ StateFn state_dq_string(Lexer *lx) {
       c = lx_next(lx);
     else if (c == '"') {
       lx_emit(lx, TypeString);
-      return (StateFn){state_recovery};
+      return (StateFn){state_reset};
     }
   }
 }
+
+//// state_sq_string
+// single quoted string
 StateFn state_sq_string(Lexer *lx) {
   char c;
   for (;;) {
@@ -160,25 +216,31 @@ StateFn state_sq_string(Lexer *lx) {
       c = lx_next(lx);
     else if (c == '\'') {
       lx_emit(lx, TypeString);
-      return (StateFn){state_recovery};
+      return (StateFn){state_reset};
     }
   }
 }
 
+//// state_error
+// when we see something we can't lex return error token and exit
 StateFn state_error(Lexer *lx) {
   lx_emit(lx, TypeError);
   return (StateFn){NULL};
 };
 
+//// state_keyword
+// treat any unquoted string as a keyword
+// should be only null, true, false
 StateFn state_keyword(Lexer *lx) {
   char c;
   while (isalpha((c = lx_next(lx))))
     ;
+  lx_backup(lx);
   lx_emit(lx, TypeKeyword);
-  return (StateFn){state_recovery};
+  return (StateFn){state_reset};
 }
 
-static const StateFn recovery_states[256] = {
+static const StateFn reset_map[256] = {
     [0 ... 255] = (StateFn){state_error}, ['}'] = (StateFn){state_start},
     [']'] = (StateFn){state_start},       [','] = (StateFn){state_start},
     [':'] = (StateFn){state_start},       [' '] = (StateFn){state_start},
@@ -186,26 +248,19 @@ static const StateFn recovery_states[256] = {
     ['\n'] = (StateFn){state_start},
 };
 
+//// state_reset
 // look to see if we ended last token correctly
-StateFn state_recovery(Lexer *lx) {
+StateFn state_reset(Lexer *lx) {
   char c = lx_current(lx);
-  return recovery_states[c];
-}
-
-StateFn state_sign(Lexer *lx) {
-  char c = lx_next(lx);
-  if (isdigit(c)) {
-    return (StateFn){state_digits};
-  } else {
-    return (StateFn){state_error};
-  }
+  return reset_map[c];
 }
 
 static const StateFn start_map[256] = {
+    [0 ... 255] = (StateFn){state_error},
     ['"'] = (StateFn){state_dq_string},
     ['\''] = (StateFn){state_sq_string},
     ['0'] = (StateFn){state_zero},
-    ['1' ... '9'] = (StateFn){state_digits},
+    ['1' ... '9'] = (StateFn){state_integer},
     ['-'] = (StateFn){state_sign},
     ['{'] = (StateFn){state_lcurly},
     ['}'] = (StateFn){state_rcurly},
@@ -214,35 +269,15 @@ static const StateFn start_map[256] = {
     [','] = (StateFn){state_comma},
     [':'] = (StateFn){state_colon},
     ['a' ... 'z'] = (StateFn){state_keyword},
-    [' '] = (StateFn){state_ignore},
-    ['\t'] = (StateFn){state_ignore},
-    ['\r'] = (StateFn){state_ignore},
-    ['\n'] = (StateFn){state_ignore},
+    [' '] = (StateFn){state_whitespace},
+    ['\t'] = (StateFn){state_whitespace},
+    ['\r'] = (StateFn){state_whitespace},
+    ['\n'] = (StateFn){state_whitespace},
 };
+
+//// state_start
+// the state we start in and return to
 StateFn state_start(Lexer *lx) {
   char c = lx_current(lx);
   return start_map[c];
-};
-
-static const StateFn ignore_map[256] = {
-    [0 ... 255] = (StateFn){state_start}, [' '] = (StateFn){state_ignore},
-    ['\t'] = (StateFn){state_ignore},     ['\r'] = (StateFn){state_ignore},
-    ['\n'] = (StateFn){state_ignore},
-};
-StateFn state_ignore(Lexer *lx) {
-  char c = lx_next(lx);
-  lx_ignore(lx);
-  return ignore_map[c];
-};
-
-StateFn state_zero(Lexer *lx) {
-  char c = lx_next(lx);
-  if (isdigit(c))
-    return (StateFn){state_error};
-  if (c == '.')
-    return (StateFn){state_float};
-  else {
-    lx_emit(lx, TypeInteger);
-    return (StateFn){state_recovery};
-  }
 };

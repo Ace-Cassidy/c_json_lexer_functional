@@ -8,11 +8,11 @@
 typedef chan_t Channel;
 
 typedef enum {
-  TypeError = 'x',
-  TypeInteger = '9',
-  TypeFloat = '.',
-  TypeKeyword = 'k',
-  TypeString = 's',
+  TypeError = 'S',
+  TypeInteger = 'I',
+  TypeFloat = 'F',
+  TypeKeyword = 'K',
+  TypeString = 'S',
   TypeLCurly = '{',
   TypeRCurly = '}',
   TypeLSquare = '[',
@@ -49,9 +49,9 @@ StateFn state_keyword(Lexer *lx);
 StateFn state_sq_string(Lexer *lx);
 StateFn state_error(Lexer *lx);
 StateFn state_dq_string(Lexer *lx);
-StateFn state_recovery(Lexer *lx);
+StateFn state_reset(Lexer *lx);
 StateFn state_float(Lexer *lx);
-StateFn state_digits(Lexer *lx);
+StateFn state_integer(Lexer *lx);
 StateFn state_rsquare(Lexer *lx);
 StateFn state_rcurly(Lexer *lx);
 StateFn state_lsquare(Lexer *lx);
@@ -63,8 +63,9 @@ void *lx_ignore(Lexer *lx);
 void *lx_backup(Lexer *lx);
 char lx_current(Lexer *lx);
 char lx_next(Lexer *lx);
+StateFn sub_exponent(Lexer *lx, StateFn prev_state);
 StateFn state_start(Lexer *lx);
-StateFn state_ignore(Lexer *lx);
+StateFn state_whitespace(Lexer *lx);
 void *lx_run(Lexer *lx);
 Lexer *lx_create(FILE *f);
 Lexer *lex(FILE *f);

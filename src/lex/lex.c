@@ -42,12 +42,11 @@ void *lx_run(Lexer *lx) {
 }
 
 char lx_next(Lexer *lx) {
-  if (lx->current_pos >= lx->text_length) {
+  lx->current_pos++;
+  if (lx->current_pos >= lx->text_length - 1) {
     lx->atEOF = true;
-    lx_emit(lx, TypeError);
-    exit(1);
   } else {
-    char c = lx->input_text[++lx->current_pos];
+    char c = lx->input_text[lx->current_pos];
     return c;
   }
 }
@@ -61,10 +60,13 @@ void *lx_backup(Lexer *lx) { lx->current_pos--; }
 
 void *lx_ignore(Lexer *lx) { lx->token_start = lx->current_pos; }
 
-void *lx_emit(Lexer *lx, TokenType id) {
+StateFn lx_emit(Lexer *lx, TokenType id, StateFn next_state) {
   Token *tkn = tkn_create(lx, id);
   chan_send(lx->emitter, (void *)tkn);
   lx->token_start = ++lx->current_pos;
+  if (lx->atEOF)
+    return (StateFn){NULL};
+  return next_state;
 }
 
 /* StateFn */
@@ -83,38 +85,36 @@ StateFn state_whitespace(Lexer *lx) {
   return whitespace_map[c];
 };
 
-
 /* Terminal */
 
 //// state_colon
 StateFn state_colon(Lexer *lx) {
-  lx_emit(lx, TypeColon);
-  return (StateFn){state_start};
+  return lx_emit(lx, TypeColon, (StateFn){state_start});
 }
+
 //// state_comma
 StateFn state_comma(Lexer *lx) {
-  lx_emit(lx, TypeComma);
-  return (StateFn){state_start};
+  return lx_emit(lx, TypeComma, (StateFn){state_start});
 };
+
 //// state_lcurly
 StateFn state_lcurly(Lexer *lx) {
-  lx_emit(lx, TypeLCurly);
-  return (StateFn){state_start};
+  return lx_emit(lx, TypeLCurly, (StateFn){state_start});
 }
-//// state_lsquare
-StateFn state_lsquare(Lexer *lx) {
-  lx_emit(lx, TypeLSquare);
-  return (StateFn){state_start};
-}
+
 //// state_rcurly
 StateFn state_rcurly(Lexer *lx) {
-  lx_emit(lx, TypeRCurly);
-  return (StateFn){state_start};
+  return lx_emit(lx, TypeRCurly, (StateFn){state_start});
 }
+
+//// state_lsquare
+StateFn state_lsquare(Lexer *lx) {
+  return lx_emit(lx, TypeLSquare, (StateFn){state_start});
+}
+
 //// state_rsquare
 StateFn state_rsquare(Lexer *lx) {
-  lx_emit(lx, TypeRSquare);
-  return (StateFn){state_start};
+  return lx_emit(lx, TypeRSquare, (StateFn){state_start});
 }
 
 /* Number */
@@ -128,11 +128,9 @@ StateFn state_zero(Lexer *lx) {
   if (c == '.') //  allow floats that start with 0
     return (StateFn){state_float};
   else {
-    lx_emit(lx, TypeInteger);
-    return (StateFn){state_reset};
+    lx_emit(lx, TypeInteger, (StateFn){state_reset});
   }
 };
-
 
 //// state_sign
 // for negative integers
@@ -158,8 +156,7 @@ StateFn state_integer(Lexer *lx) {
     sub_exponent(lx, (StateFn){state_integer});
   } else {
     lx_backup(lx);
-    lx_emit(lx, TypeInteger);
-    return (StateFn){state_reset};
+    return lx_emit(lx, TypeInteger, (StateFn){state_reset});
   }
 }
 
@@ -172,8 +169,7 @@ StateFn state_float(Lexer *lx) {
     sub_exponent(lx, (StateFn){state_float});
   }
   lx_backup(lx);
-  lx_emit(lx, TypeFloat);
-  return (StateFn){state_reset};
+  return lx_emit(lx, TypeFloat, (StateFn){state_reset});
 }
 
 //// consume_exponent
@@ -200,8 +196,7 @@ StateFn state_dq_string(Lexer *lx) {
     if (c == '\\')
       c = lx_next(lx);
     else if (c == '"') {
-      lx_emit(lx, TypeString);
-      return (StateFn){state_reset};
+      return lx_emit(lx, TypeString, (StateFn){state_reset});
     }
   }
 }
@@ -215,8 +210,7 @@ StateFn state_sq_string(Lexer *lx) {
     if (c == '\\')
       c = lx_next(lx);
     else if (c == '\'') {
-      lx_emit(lx, TypeString);
-      return (StateFn){state_reset};
+      return lx_emit(lx, TypeString, (StateFn){state_reset});
     }
   }
 }
@@ -224,8 +218,7 @@ StateFn state_sq_string(Lexer *lx) {
 //// state_error
 // when we see something we can't lex return error token and exit
 StateFn state_error(Lexer *lx) {
-  lx_emit(lx, TypeError);
-  return (StateFn){NULL};
+  return lx_emit(lx, TypeError, (StateFn){NULL});
 };
 
 //// state_keyword
@@ -236,8 +229,7 @@ StateFn state_keyword(Lexer *lx) {
   while (isalpha((c = lx_next(lx))))
     ;
   lx_backup(lx);
-  lx_emit(lx, TypeKeyword);
-  return (StateFn){state_reset};
+  return lx_emit(lx, TypeKeyword, (StateFn){state_reset});
 }
 
 static const StateFn reset_map[256] = {

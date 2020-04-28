@@ -58,7 +58,7 @@ StateFn state_lsquare(Lexer *lx);
 StateFn state_lcurly(Lexer *lx);
 StateFn state_comma(Lexer *lx);
 StateFn state_colon(Lexer *lx);
-void *lx_emit(Lexer *lx, TokenType id);
+StateFn lx_emit(Lexer *lx, TokenType id, StateFn next_state);
 void *lx_ignore(Lexer *lx);
 void *lx_backup(Lexer *lx);
 char lx_current(Lexer *lx);
